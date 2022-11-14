@@ -127,7 +127,7 @@ def print_children(node, depth=0, parent_node_branch_state: typing.Optional[logi
     elif logic.is_specified_weight_node(node):
         # children will have :weight
         # ':weight': {':num': 88, ':den': 100}, (numerator and denominator)
-        pretty_log("Weight accordingly:")
+        pretty_log("Weight specifically:")
     elif logic.is_weight_inverse_volatility_node(node):
         pretty_log(
             f"Weight inversely to {pretty_indicator(logic.ComposerIndicatorFunction.STANDARD_DEVIATION_RETURNS, '____', node[':window-days'])}")
