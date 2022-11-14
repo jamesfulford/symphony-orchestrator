@@ -6,7 +6,8 @@ import pandas as pd
 import yfinance
 
 
-def get_backtest_data(tickers: typing.Set[str], use_simulated_data: bool = False) -> pd.DataFrame:
+def get_backtest_data(raw_tickers: typing.Set[str], use_simulated_data: bool = False) -> pd.DataFrame:
+    tickers = [t.replace("/", "-") for t in raw_tickers]
     if not os.path.exists("data"):
         os.mkdir("data")
 
