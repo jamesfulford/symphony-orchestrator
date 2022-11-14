@@ -138,7 +138,8 @@ def extract_weight_factor(parent_node_branch_state: NodeBranchState, node) -> fl
 
     # :wt-cash-specified parent means :weight is specified on this node
     if parent_node_type == ":wt-cash-specified" and ":weight" in node:
-        weight *= int(node[":weight"][":num"]) / int(node[":weight"][":den"])
+        weight *= float(node[":weight"][":num"]) / \
+            float(node[":weight"][":den"])
 
     # :wt-cash-equal parent means apply equal % across all siblings of this node
     if parent_node_type == ":wt-cash-equal":
