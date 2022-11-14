@@ -3,8 +3,9 @@ import typing
 
 import pandas as pd
 import pandas_ta
+import vectorbt as vbt
 
-from . import human, vectorbt, logic, traversers
+from . import human, vectorbt, traversers
 
 
 class Transpiler():
@@ -19,32 +20,29 @@ class HumanTextTranspiler():
         return human.convert_to_pretty_format(root_node)
 
 
-#
-# TODO: include this inside vectorbt output
-#
 def precompute_indicator(close_series: pd.Series, indicator: str, window_days: int):
     close = close_series.dropna()
-    if indicator == logic.ComposerIndicatorFunction.CUMULATIVE_RETURN:
+    if indicator == ":cumulative-return":
         # because comparisons will be to whole numbers
         return close.pct_change(window_days) * 100
-    elif indicator == logic.ComposerIndicatorFunction.MOVING_AVERAGE_PRICE:
+    elif indicator == ":moving-average-price":
         return pandas_ta.sma(close, window_days)
-    elif indicator == logic.ComposerIndicatorFunction.RSI:
+    elif indicator == ":relative-strength-index":
         return pandas_ta.rsi(close, window_days)
-    elif indicator == logic.ComposerIndicatorFunction.EMA_PRICE:
+    elif indicator == ":exponential-moving-average-price":
         return pandas_ta.ema(close, window_days)
-    elif indicator == logic.ComposerIndicatorFunction.CURRENT_PRICE:
+    elif indicator == ":current-price":
         return close_series
-    elif indicator == logic.ComposerIndicatorFunction.STANDARD_DEVIATION_PRICE:
+    elif indicator == ":standard-deviation-price":
         return pandas_ta.stdev(close, window_days)
-    elif indicator == logic.ComposerIndicatorFunction.STANDARD_DEVIATION_RETURNS:
+    elif indicator == ":standard-deviation-return":
         return pandas_ta.stdev(close.pct_change() * 100, window_days)
-    elif indicator == logic.ComposerIndicatorFunction.MAX_DRAWDOWN:
+    elif indicator == ":max-drawdown":
         # this seems pretty close
         maxes = close.rolling(window_days, min_periods=1).max()
         downdraws = (close/maxes) - 1.0
         return downdraws.rolling(window_days, min_periods=1).min() * -100
-    elif indicator == logic.ComposerIndicatorFunction.MOVING_AVERAGE_RETURNS:
+    elif indicator == ":moving-average-return":
         return close.pct_change().rolling(window_days).mean() * 100
     else:
         raise NotImplementedError(
@@ -60,7 +58,10 @@ class VectorBTTranspiler():
     def execute(root_node: dict, closes: pd.DataFrame) -> typing.Tuple[pd.DataFrame, pd.DataFrame]:
         code = VectorBTTranspiler.convert_to_string(root_node)
         locs = {}
-        exec(code, None, locs)
+        exec(code, {
+            "pd": pd,
+            "precompute_indicator": precompute_indicator,
+        }, locs)
         build_allocations_matrix = locs['build_allocations_matrix']
 
         allocations, branch_tracker = build_allocations_matrix(closes)
@@ -74,11 +75,49 @@ class VectorBTTranspiler():
 
         allocations_possible_start = closes[list(
             allocateable_tickers)].dropna().index.min().date()
-        # truncate until allocations possible (branch_tracker is not truncated)
         allocations = allocations[allocations.index.date >=
                                   allocations_possible_start]
 
+        # aligning
+        backtest_start = allocations.dropna().index.min().date()
+        allocations = allocations[allocations.index.date >=
+                                  backtest_start]
+        branch_tracker = branch_tracker[branch_tracker.index.date >=
+                                        backtest_start]
+
         return allocations, branch_tracker
+
+    @staticmethod
+    def extract_branches_with_incorrect_allocations(allocations, branch_tracker):
+        branches_by_failed_allocation_days = branch_tracker[(
+            allocations.sum(axis=1) - 1).abs() > 0.0001].sum(axis=0)
+        return branches_by_failed_allocation_days[
+            branches_by_failed_allocation_days != 0].index.values
+
+    @staticmethod
+    def get_returns(closes, allocations, branch_tracker) -> pd.Series:
+        backtest_start = allocations.dropna().index.min().date()
+
+        assert not len(VectorBTTranspiler.extract_branches_with_incorrect_allocations(
+            allocations, branch_tracker)), "found incomplete allocations (!= 100%)"
+
+        # VectorBT
+        closes_aligned = closes[closes.index.date >=
+                                backtest_start].reindex_like(allocations)
+        portfolio = vbt.Portfolio.from_orders(
+            close=closes_aligned,
+            size=allocations,
+            size_type="targetpercent",
+            group_by=True,
+            cash_sharing=True,
+            call_seq="auto",
+            freq='D',
+            fees=0.0005,
+        )
+        returns = portfolio.asset_returns()
+        # for some reason, the first entry is -inf, breaks some stats
+        returns = returns.drop(index=backtest_start)
+        return returns
 
 
 def main():
