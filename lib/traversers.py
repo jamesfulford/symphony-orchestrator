@@ -249,6 +249,17 @@ def collect_nodes_of_type(step: str, node: dict) -> typing.List[dict]:
     return s
 
 
+def find_node_by_id(node, node_id) -> typing.Optional[dict]:
+    if node[":id"] == node_id:
+        return node
+
+    for child in logic.get_node_children(node):
+        node_query_result = find_node_by_id(child, node_id)
+        if node_query_result:
+            return node_query_result
+    return None
+
+
 def main():
     import pprint
 
